@@ -32,7 +32,7 @@ Nexa is a Discord-integrated Minecraft Java server management system. It allows 
 ### 1: Clone the repistory (ignore step if running binary)
 
 ```bash
-placeholder for git clone
+git clone https://github.com/StormCode-dev/Nexa.git
 cd nexa
 ```
 
