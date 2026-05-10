@@ -197,6 +197,10 @@ src/main.build
 src/main.dist
 src/main.onefile-build
 
+main.build
+main.dist
+main.onefile-build
+
 # Ignore the hateful EXEs, in case I'm an idiot.
 *.exe
 
