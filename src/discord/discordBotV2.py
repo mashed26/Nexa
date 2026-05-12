@@ -27,7 +27,7 @@ logger = nexaLoggerFactory.get_logger("DiscordBot")
 
 
 # I really should move this to a better place.
-VERSION = "Nexa v0.2.0-beta"
+VERSION = "Nexa v0.2.1-dev"
 
 # ---------------------------------------------------------------------------
 # UI Primitives
