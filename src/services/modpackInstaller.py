@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
 from typing import Callable, Awaitable, Optional
+from warnings import deprecated
 import os
 import stat
  
@@ -123,7 +124,7 @@ def _patch_server_properties(props_path: Path, port: int):
             patched.append(line)
     props_path.write_text("\n".join(patched), encoding="utf-8")
  
- 
+# This is a naive implementation that may not handle all edge cases. I'll revise this one soon. Expect removal in an upcoming update
 def _merge_directories(src: Path, dst: Path, exclude: set[str] = None):
     """
     Merge src into dst:
@@ -139,6 +140,35 @@ def _merge_directories(src: Path, dst: Path, exclude: set[str] = None):
                 continue
             relative = item.relative_to(src)
             target   = dst / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, target)
+
+def _destructive_clone_dirs(src: Path, dst: Path, exclude: set[str] = None):
+    """
+    Deletes all files in dst, before promptly cloning files from src into dst.
+    - Files in exclude (by filename) are not cloned into the directory
+    """
+
+    exclude = exclude or set()
+
+    # First pass over dst to clear
+    for item in dst.rglob("*"):
+        if item.name in exclude:
+            continue
+        if item.is_file():
+            item.unlink()
+        elif item.is_dir():
+            shutil.rmtree(item)
+
+    # Second pass to clone from src to dst
+    for item in src.rglob("*"):
+        if item.name in exclude:
+            continue
+        relative = item.relative_to(src)
+        target   = dst / relative
+        if item.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+        else:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(item, target)
 
