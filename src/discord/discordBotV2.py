@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from typing import Callable, Optional, Awaitable, List
 
 import hashlib
+import services.nexaCryptoSys as nexaCrypto
+import sharedLibs.nsup_utils as nsup_utils
 
 import discord
 from discord.ext import commands
@@ -28,6 +30,7 @@ logger = nexaLoggerFactory.get_logger("DiscordBot")
 
 # I really should move this to a better place.
 VERSION = "Nexa v0.2.1-dev"
+DESK_SETUP_TIMEOUT = 120
 
 # ---------------------------------------------------------------------------
 # UI Primitives
@@ -802,6 +805,329 @@ class SuperUserCog(commands.Cog):
         await interaction.response.send_modal(
             AuthRequestModal(requestor, purpose, permissions)
         )
+
+# This is kept here for reference. View updated code using NSUP-utils.py just below this class.
+class old_RevealKeyView(discord.ui.View):
+    """Shown in the operator's DM before the token is revealed."""
+ 
+    def __init__(self, cog: "ServerOperatorCog", user_id: int, dm_message: discord.Message):
+        super().__init__(timeout=None)
+        self.cog = cog
+        self.user_id = user_id
+        self.dm_message = dm_message
+        self._revealed = False
+ 
+    @discord.ui.button(label="Reveal Key", style=discord.ButtonStyle.danger)
+    async def reveal_key(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Must be the operator who initiated setup
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't for you.", ephemeral=True)
+            return
+ 
+        # Final pre-reveal operator check
+        if not self.cog.bot._is_server_operator(interaction.user.id):
+            await interaction.response.send_message(
+                "You no longer have Server Operator permission.", ephemeral=True
+            )
+            self.stop()
+            return
+ 
+        # Guard double-clicks
+        if self._revealed:
+            await interaction.response.defer()
+            return
+        self._revealed = True
+ 
+        # Generate server keypair and build token
+        server_keypair = nexaCrypto.generate_keypair()
+        server_pub_pem = nexaCrypto.public_key_to_pem(server_keypair)
+        server_token   = nexaCrypto.build_auth_token(interaction.user.name, server_pub_pem)
+ 
+        # Hold in memory until client token arrives
+        self.cog._pending_keypair = server_keypair
+        self.cog._pending_token   = server_token
+ 
+        await interaction.response.edit_message(
+            content=(
+                "**PLEASE READ THIS CAREFULLY. ALL INFORMATION HERE IS CRITICAL**\n\n"
+                "You have exactly two minutes to copy this authorization token before it is "
+                "destroyed from the server. You will **not** get this authorization token back. Ever.\n\n"
+                "Do **not** share this authorization token with any person other than yourself. "
+                "Doing so may compromise the security of your server.\n\n"
+                f"```\n{server_token}\n```"
+            ),
+            view=None
+        )
+ 
+        # Kick off the countdown — passes the DM message so it can be edited after timeout
+        asyncio.create_task(
+            self.cog._desk_setup_countdown(interaction.user, self.dm_message)
+        )
+        self.stop()
+ 
+    async def on_timeout(self):
+        if not self._revealed:
+            self.cog._pending_keypair = None
+            self.cog._pending_token   = None
+            try:
+                await self.dm_message.edit(
+                    content="This setup session has expired. Please run `/desk_setup` again.",
+                    view=None
+                )
+            except discord.HTTPException:
+                pass
+        self.stop()
+
+
+class RevealKeyView(discord.ui.View):
+    """Shown in the operator's DM before the token is revealed."""
+ 
+    def __init__(self, cog: "ServerOperatorCog", user_id: int, dm_message: discord.Message):
+        super().__init__(timeout=None)
+        self.cog = cog
+        self.user_id = user_id
+        self.dm_message = dm_message
+        self._revealed = False
+ 
+    @discord.ui.button(label="Reveal Key", style=discord.ButtonStyle.danger)
+    async def reveal_key(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Must be the operator who initiated setup
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't for you.", ephemeral=True)
+            return
+ 
+        # Final pre-reveal operator check
+        if not self.cog.bot._is_server_operator(interaction.user.id):
+            await interaction.response.send_message(
+                "You no longer have Server Operator permission.", ephemeral=True
+            )
+            self.stop()
+            return
+ 
+        # Guard double-clicks
+        if self._revealed:
+            await interaction.response.defer()
+            return
+        self._revealed = True
+ 
+        # Generate server keypair and build token via NSUP-utils
+        server_keypair = nsup_utils.constructKeyPair(interaction.user.name)
+        server_token       = server_keypair[0]  # Auth token (contains public key)
+        # server_keypair[1] is the private key, held in memory until client token arrives
+ 
+        # Hold in memory until client token arrives
+        self.cog._pending_keypair = server_keypair
+        self.cog._pending_token   = server_token
+ 
+        await interaction.response.edit_message(
+            content=(
+                "**PLEASE READ THIS CAREFULLY. ALL INFORMATION HERE IS CRITICAL**\n\n"
+                "You have exactly two minutes to copy this authorization token before it is "
+                "destroyed from the server. You will **not** get this authorization token back. Ever.\n\n"
+                "Do **not** share this authorization token with any person other than yourself. "
+                "Doing so may compromise the security of your server.\n\n"
+                f"```\n{server_token}\n```"
+            ),
+            view=None
+        )
+ 
+        # Kick off the countdown
+        asyncio.create_task(
+            self.cog._desk_setup_countdown(interaction.user, self.dm_message)
+        )
+        self.stop()
+
+ 
+    async def on_timeout(self):
+        if not self._revealed:
+            self.cog._pending_keypair = None
+            self.cog._pending_token   = None
+            try:
+                await self.dm_message.edit(
+                    content="This setup session has expired. Please run `/desk_setup` again.",
+                    view=None
+                )
+            except discord.HTTPException:
+                pass
+        self.stop()
+ 
+class SubmitTokenModal(discord.ui.Modal, title="Submit Your Client Token"):
+    client_token = discord.ui.TextInput(
+        label="Client Authorization Token",
+        style=discord.TextStyle.paragraph,
+        placeholder="Paste the token generated by Nexa Desktop here…",
+        required=True,
+        max_length=2000
+    )
+ 
+    def __init__(self, cog: "ServerOperatorCog"):
+        super().__init__()
+        self.cog = cog
+ 
+    async def on_submit(self, interaction: discord.Interaction):
+        token = self.client_token.value.strip()
+ 
+        # Validate token structure before persisting anything
+        try:
+            _client_name, client_pub_key = nsup_utils.getInfoFromAuthToken(token)
+        except ValueError:
+            await interaction.response.send_message(
+                "The token appears to be malformed. Copy it again from Nexa Desktop and try once more.",
+                ephemeral=True
+            )
+            return
+ 
+        # Persist both keys to protectedDB
+        db_key = os.environ.get("NEXABOT_PROTECTED_KEY")
+        desktop_auth_db = protectedDB(Path("databases") / "desktopAuth.nxdb", db_key, create_if_missing=True)
+        desktop_auth_db.load()
+        desktop_auth_db.addEntry("server_private_key", self.cog._pending_keypair[1])
+        desktop_auth_db.addEntry("client_public_key", client_pub_key)
+        desktop_auth_db.unload()
+ 
+        # Clear in-memory state
+        self.cog._pending_keypair = None
+        self.cog._pending_token   = None
+ 
+        await interaction.response.edit_message(
+            content="Thank you! Nexa has been configured.",
+            view=None
+        )
+
+ 
+class SubmitTokenView(discord.ui.View):
+    """Shown after the two-minute token window expires."""
+ 
+    def __init__(self, cog: "ServerOperatorCog"):
+        super().__init__(timeout=None)
+        self.cog = cog
+ 
+    @discord.ui.button(label="Submit Your Token", style=discord.ButtonStyle.primary)
+    async def submit_token(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.cog._pending_keypair:
+            await interaction.response.send_message(
+                "This setup session is no longer valid. Please run `/desk_setup` again.",
+                ephemeral=True
+            )
+            self.stop()
+            return
+        await interaction.response.send_modal(SubmitTokenModal(self.cog))
+        self.stop()
+
+ 
+ 
+class ServerOperatorCog(commands.Cog):
+    """Commands for server operators defined in security.serverOperators."""
+ 
+    def __init__(self, bot: "NexaBot"):
+        self.bot = bot
+        self._pending_keypair = None
+        self._pending_token   = None
+ 
+    def _desktop_is_configured(self) -> bool:
+        try:
+            db_key = os.environ.get("NEXABOT_PROTECTED_KEY")
+            desktop_auth_db = protectedDB(Path("databases") /"desktopAuth.nxdb", db_key)
+            desktop_auth_db.load()
+            has_keys = (
+                desktop_auth_db.exists("server_private_key") and
+                desktop_auth_db.exists("client_public_key")
+            )
+            desktop_auth_db.unload()
+            return has_keys
+        except Exception:
+            return False
+ 
+    async def _desk_setup_countdown(self, user: discord.User, dm_message: discord.Message):
+        """Waits two minutes, wipes the token from Discord, then prompts for the client token."""
+        await asyncio.sleep(DESK_SETUP_TIMEOUT)
+        try:
+            await dm_message.edit(
+                content=(
+                    "The authorization token has been destroyed.\n\n"
+                    "Please submit your generated authorization token from Nexa Desktop."
+                ),
+                view=SubmitTokenView(self)
+            )
+        except discord.HTTPException:
+            pass
+ 
+    @app_commands.command(
+        name="desk_setup",
+        description="SERVER OPERATOR-ONLY. Set up Nexa Desktop control of this server."
+    )
+    async def desk_setup(self, interaction: discord.Interaction):
+        if not self.bot._is_server_operator(interaction.user.id):
+            await interaction.response.send_message(
+                "You do not have permission to use this command.", ephemeral=True
+            )
+            return
+        if not await self.bot.check_guild(interaction):
+            return
+        if not await self.bot.check_terms(interaction):
+            return
+        if self._desktop_is_configured():
+            await interaction.response.send_message(
+                "A Nexa Desktop client is already configured. "
+                "Run `/revoke_tokens` first if you need to reset.",
+                ephemeral=True
+            )
+            return
+ 
+        await interaction.response.send_message(
+            "Please check your Direct Messages for setup instructions.",
+            ephemeral=True
+        )
+ 
+        dm_message = await interaction.user.send(
+            "**PLEASE READ THIS CAREFULLY. ALL INFORMATION HERE IS CRITICAL**\n\n"
+            "You will have exactly two minutes to copy this authorization token before it is "
+            "destroyed from the server and deleted off Discord. You will **not** get this "
+            "authorization token back. Ever.\n\n"
+            "Do **not** share this authorization token with any person other than yourself. "
+            "Doing so may compromise the security of your server.\n\n"
+            "If you have read all this correctly, please press the button below to reveal your key.",
+            view=RevealKeyView(self, interaction.user.id, None)
+        )
+ 
+        # Re-attach view with real message reference for countdown cleanup
+        await dm_message.edit(
+            view=RevealKeyView(self, interaction.user.id, dm_message)
+        )
+ 
+    @app_commands.command(
+        name="revoke_tokens",
+        description="SERVER OPERATOR-ONLY. Immediately invalidate all Desktop keypairs."
+    )
+    async def revoke_tokens(self, interaction: discord.Interaction):
+        if not self.bot._is_server_operator(interaction.user.id):
+            await interaction.response.send_message(
+                "You do not have permission to use this command.", ephemeral=True
+            )
+            return
+        if not await self.bot.check_guild(interaction):
+            return
+ 
+        try:
+            db_key = os.environ.get("NEXABOT_PROTECTED_KEY")
+            desktop_auth_db = protectedDB(Path("databases") / "desktopAuth.nxdb", db_key)
+            desktop_auth_db.load()
+            desktop_auth_db.deleteEntry("server_private_key")
+            desktop_auth_db.deleteEntry("client_public_key")
+            desktop_auth_db.unload()
+        except Exception:
+            pass
+ 
+        self._pending_keypair = None
+        self._pending_token   = None
+ 
+        await interaction.response.send_message(
+            "All Desktop keypairs have been revoked. Run `/desk_setup` to re-establish a connection.",
+            ephemeral=True
+        )
+
+
+
 # ---------------------------------------------------------------------------
 # Custom-ish components
 # ---------------------------------------------------------------------------
@@ -862,6 +1188,12 @@ class AuthConfirmView(discord.ui.View):
             f"Permissions granted: {', '.join(self.selected_permissions)}",
             ephemeral=True
         )
+
+class ButtonComponent(discord.ui.View):
+    def __init__(self, buttons: list[str]):
+        super().__init__(timeout=None)
+        for label in buttons:
+            self.add_item(discord.ui.Button(label=label, style=discord.ButtonStyle.primary))
 # ---------------------------------------------------------------------------
 # Bot
 # ---------------------------------------------------------------------------
@@ -912,6 +1244,8 @@ class NexaBot(commands.Bot):
             create_if_missing=True
         )
 
+        self.nexaCrypto = nexaCrypto
+
         self._hydrate_instances()
 
     # ---------------------------------------------------------------------------
@@ -940,6 +1274,13 @@ class NexaBot(commands.Bot):
             self.config.get("discord.enableSuperUsers", False)
             and user_id in (self.config.get("discord.superUsers") or [])
         )
+    
+    async def _is_server_operator(self, user_id: int) -> bool:
+        return (
+            self.config.get("security.enableServerOperators", False)
+            and user_id in (self.config.get("security.serverOperators") or [])
+        )
+    
 
     def _has_agreed_to_terms(self, user_id: int) -> bool:
         self.userData.load()
@@ -1053,6 +1394,7 @@ class NexaBot(commands.Bot):
         await self.add_cog(GeneralCog(self))
         await self.add_cog(InstancesCog(self))
         await self.add_cog(SuperUserCog(self))
+        await self.add_cog(ServerOperatorCog(self))
 
     async def on_ready(self):
         logger.info(f"Logged in as {self.user}")

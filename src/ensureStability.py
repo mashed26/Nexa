@@ -2,7 +2,6 @@
 # is set up, and to fail early if not. This includes:
 # - Checking for the presence of the BOT_TOKEN environment variable
 # - Starting the PlayIt client if configured to use it
-# - Loading instances from the registry and registering them with the InstanceManager
 
 # Under the MIT License.
 

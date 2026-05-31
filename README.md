@@ -20,7 +20,7 @@ Nexa is a Discord-integrated Minecraft Java server management system. It allows 
 
 ## Requirements:
 
-- Python 3.13+ (if running off source)
+- Python 3.14+ (if running off source)
 - Windows (planned Linux support)
 - A discord bot token, with Administrator access
 - [Playit.gg](https://playit.gg/) for optional residential network exposure.
@@ -35,6 +35,8 @@ Nexa is a Discord-integrated Minecraft Java server management system. It allows 
 git clone https://github.com/StormCode-dev/Nexa.git
 cd nexa
 ```
+
+You can also download a zipped version of the repository on the main branch and extract, then cd in to the unzipped folder.
 
 ## 2: Install dependencies (ignore step if running binary)
 

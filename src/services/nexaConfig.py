@@ -1,6 +1,6 @@
 # This program generates the NexaBot Configuration file, used to define basic things about your NexaBot Installation
 # It also parses the config file and provides an interface for accessing the config values.
-# The config file is in YAML format, and is located at the root of the NexaBot installation as "nexaConfig.yaml". 
+# The config file is in YAML format, and is located at the root of the NexaBot installation as "NexaBotConfig.yaml". 
 # If the file does not exist, it will be created with default values.
 # Under the MIT License.
 
@@ -37,6 +37,9 @@ class NexaConfig:
             "skipLoadingAppsWithBlacklistedCapabilities": True,
             "shadowZoneApps": True,
             "useOverrides": False,
+            "enableServerOperators": False,
+            "serverOperators": [],
+            "allowNexaDesktop": False,
         },
         "networking": {
             "usePlayIt": True,
@@ -82,6 +85,9 @@ class NexaConfig:
             "skipLoadingAppsWithBlacklistedCapabilities": bool,
             "shadowZoneApps": bool,
             "useOverrides": bool,
+            "enableServerOperators": bool,
+            "serverOperators": list,
+            "allowNexaDesktop": bool,
         },
         "networking": {
             "usePlayIt": bool,
