@@ -229,7 +229,7 @@ All commands are slash command. Users require appropriate discord permissions un
 | Command | Description |
 |---|---|
 | `/lock_instance <instance>` | Locks the named instance from being interacted with, including superusers. |
-| `/lock_instance <instance>` | Unlocks the named instance. |
+| `/unlock_instance <instance>` | Unlocks the named instance. |
 | `/execute <instance>` | Executes a command on the instance. |
 
 ### Modpack Management (Superuser Only)
