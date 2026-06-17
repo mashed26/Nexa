@@ -1,4 +1,4 @@
-# discordBotV2.py
+# discordBot.py
 # Under the MIT License.
 
 import os
@@ -656,7 +656,7 @@ class SuperUserCog(commands.Cog):
         install_msg: Optional[discord.Message] = None
 
         await interaction.response.send_message(
-            f"🚀 Starting modpack installation for `{instance}`…", ephemeral=True
+            f"Starting modpack installation for `{instance}`…", ephemeral=True
         )
 
         if channel:
@@ -700,7 +700,7 @@ class SuperUserCog(commands.Cog):
                         shutdown_cancelled = True
                         self.bot.instance_manager.cancel_shutdown(instance)
                         await btn_interaction.response.send_message(
-                            "✅ Shutdown cancelled. Install aborted.", ephemeral=True
+                            "Shutdown cancelled. Install aborted.", ephemeral=True
                         )
                         await install_msg.edit(
                             embed=_build_embed("🛑 Install cancelled by operator.", failed=True),
