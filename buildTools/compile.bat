@@ -9,6 +9,4 @@ python -m nuitka ^
   --file-description="Nexa - Minecraft Server Orchestration Software" ^
   --copyright="Copyright (c) 2026 StormCode & Contributors" ^
   --assume-yes-for-downloads ^
-  --follow-imports ^
-  --include-package=psutil ^
   src/main.py
