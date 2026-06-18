@@ -15,6 +15,10 @@ from services import nexaLoggerFactory
 from ensureStability import checkIfAbleToRun
 import argparse
 
+# Capture the real executable path before anything else runs.
+# sys.argv[0] always points to the original .exe or script, never the temp extraction dir.
+SELF_PATH = os.path.abspath(sys.argv[0])
+
 # Load Config
 from services.nexaConfig import NexaConfig, NexaInstanceRegistry
 
@@ -90,18 +94,9 @@ def load_overrides():
     except FileNotFoundError:
         print("No nxoverrides.dat file found, skipping overrides.")
 
-def get_self_path() -> str:
-    """Returns the path to the current executable, whether frozen or running as a script."""
-    if getattr(sys, "frozen", False):
-        return sys.executable  # Compiled onefile executable
-    return sys.executable + " " + __file__  # Running as a script
-
 def main():
     # Early safety check & setup
     checkIfAbleToRun(config)
-
-    # Check config if serverHealthManagement.keepNexaAlive is enabled, and if so, turn this process into a watchdog and subproc again with --isDaemon flag. 
-    # Pass if --isDaemon is passed.
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--isSpawnedProc", action="store_true", help="Run as a spawned process (internal use only)")
@@ -124,11 +119,11 @@ def main():
         logger.info("Starting Nexa in watchdog mode...")
         first_spawn = True
         while True:
-            if getattr(sys, "frozen", False):
-                cmd = [sys.executable, "--isSpawnedProc"]
+            if SELF_PATH.endswith(".exe"):
+                cmd = [SELF_PATH, "--isSpawnedProc"]
             else:
-                cmd = [sys.executable, __file__, "--isSpawnedProc"]
-                
+                cmd = [sys.executable, SELF_PATH, "--isSpawnedProc"]
+            
             if not first_spawn:
                 cmd.append("--resurrected")
 
@@ -143,9 +138,6 @@ def main():
                 logger.debug(f"[Nexa Watchdog] Stdout: {stdout.decode()}")
                 logger.debug(f"[Nexa Watchdog] Stderr: {stderr.decode()}")
 
-
-    # Setup logging
-    
     logger.info("Nexa is starting as the actual proccess.")
 
     kill_orphaned_java()  # Clean up any leftover Java processes from previous runs before starting
@@ -172,7 +164,6 @@ def main():
     # Check if networking allows PlayIt
     use_playit = config.get("networking.usePlayIt", False)
     if use_playit and not is_playit_running():
-        # Subproc call to start PlayIt client (assuming it's installed and in PATH)
         try:
             subprocess.Popen(["playit"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             print("Started PlayIt client.")
@@ -192,7 +183,6 @@ def main():
     try:
         instance_names = registry.list_instances()
     except Exception:
-        # defensive fallback if registry implementation differs
         instance_names = list((registry._data.get("instances") or {}).keys()) if getattr(registry, "_data", None) else []
 
     if instance_names:
@@ -201,11 +191,9 @@ def main():
                 inst_cfg = registry.get_instance(name) or {}
                 folder = build_folder_for_instance(instances_root, name, inst_cfg)
                 version = inst_cfg.get("version", "")
-                # registry uses 'loaderType' in samples. Fall back to 'loader' if present
                 loader = inst_cfg.get("loaderType") or inst_cfg.get("loader") or ""
                 icon_url = inst_cfg.get("icon_url") or inst_cfg.get("icon") or None
 
-                # Create ServerInstance the same way your mock did.
                 manager.add_instance(ServerInstance(
                     name=name,
                     folder=folder,
@@ -215,11 +203,8 @@ def main():
                 ))
                 logger.info(f"Registered instance '{name}' -> folder={folder}")
             except Exception as e:
-                # Don't crash entirely if one instance is malformed
-                #print(f"Failed to register instance '{name}': {e}", file=sys.stderr)
                 logger.error(f"Failed to register instance '{name}': {e}")
     else:
-        # Nothing in registry: attempt to use primaryInstance from NexaConfig as a last resort
         primary = config.get("general.primaryInstance", None)
         if primary:
             try:
